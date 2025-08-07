@@ -2,11 +2,11 @@
 
 A PHP-based Content Management System for local artists to showcase their artwork and connect with the community.
 
-## 🌐 Live Demo
+## Live Demo
 
 **Visit the live site:** [wpgartgallery.ca](https://wpgartgallery.ca)
 
-## 🎨 What it does
+## What it does
 
 - Artists can register and create profiles to showcase their artwork
 - Users can browse, search, and filter artwork by categories
@@ -15,7 +15,7 @@ A PHP-based Content Management System for local artists to showcase their artwor
 - Image uploads with automatic resizing and thumbnails
 - Favorite system to save artwork you like
 
-## 🛠️ Built with
+## Built with
 
 - **PHP** - Backend logic and database operations
 - **MySQL** - Database storage
@@ -23,7 +23,7 @@ A PHP-based Content Management System for local artists to showcase their artwor
 - **JavaScript** - Interactive features (AJAX, auto-submit forms)
 - **HTML/CSS** - Frontend structure and styling
 
-## 📁 Main Files
+## Main Files
 
 - `index.php` - Main application and homepage
 - `config.php` - Database configuration and helper functions  
@@ -33,7 +33,7 @@ A PHP-based Content Management System for local artists to showcase their artwor
 - `captcha.php` - Security CAPTCHA system
 - `wpg_arts_cms.sql` - Database structure
 
-## ✨ Key Features
+## Key Features
 
 ✅ User registration and authentication  
 ✅ Artist profile creation with image uploads  
@@ -44,7 +44,7 @@ A PHP-based Content Management System for local artists to showcase their artwor
 ✅ Security features (input validation, CAPTCHA)  
 ✅ Image processing and thumbnails  
 
-## 📋 Requirements
+## Requirements
 
 - PHP 8.0+
 - MySQL 5.7+
