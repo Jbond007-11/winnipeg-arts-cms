@@ -31,7 +31,7 @@ A PHP-based Content Management System for local artists to showcase their artwor
 - `manage.php` - Artist profile management
 - `user_management.php` - Admin user management
 - `captcha.php` - Security CAPTCHA system
-- `wpg_arts_cms.sql` - Database structure and sample data
+- `wpg_arts_cms.sql` - Database structure
 
 ## ✨ Key Features
 
