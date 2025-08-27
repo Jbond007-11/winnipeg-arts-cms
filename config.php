@@ -1,6 +1,6 @@
 <?php
 // DB Config
-$host = 'localhost:3307';
+$host = 'localhost';
 $dbname = 'wpg_arts_cms';
 $username = 'root';
 $password = '';
