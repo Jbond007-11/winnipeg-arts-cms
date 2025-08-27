@@ -11,13 +11,19 @@ $success = '';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $search = clean($_GET['search'] ?? '');
 
-// Handle user actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($action) {
         case 'create':
+            $password = trim($_POST['password'] ?? '');
+            
+            if (empty($password)) {
+                $error = 'Password is required';
+                break;
+            }
+            
             $data = [
                 'username' => clean($_POST['username']),
-                'password' => password_hash($_POST['password'], PASSWORD_DEFAULT),
+                'password' => password_hash($password, PASSWORD_DEFAULT),
                 'email' => clean($_POST['email']),
                 'full_name' => clean($_POST['full_name']),
                 'role' => clean($_POST['role']),
@@ -34,23 +40,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Invalid email format';
             }
             
-            if (empty($_POST['password'])) {
-                $errors[] = 'Password is required';
+            if (strlen($password) < 6) {
+                $errors[] = 'Password must be at least 6 characters long';
             }
             
             if (empty($errors)) {
-                // Check if username or email already exists
                 $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
                 $stmt->execute([$data['username'], $data['email']]);
                 
                 if ($stmt->fetch()) {
                     $error = 'Username or email already exists';
                 } else {
-                    if (insert('users', $data)) {
-                        $success = 'User created successfully!';
-                        $_POST = []; // Clear form
-                    } else {
-                        $error = 'Failed to create user';
+                    try {
+                        if (insert('users', $data)) {
+                            $success = 'User created successfully! Username: ' . $data['username'] . ', Approved: ' . ($data['approved'] ? 'Yes' : 'No');
+                            $_POST = [];
+                        } else {
+                            $error = 'Failed to create user - database error';
+                        }
+                    } catch (Exception $e) {
+                        $error = 'Failed to create user: ' . $e->getMessage();
                     }
                 }
             } else {
@@ -59,6 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
             
         case 'edit':
+            $password = trim($_POST['password'] ?? '');
+            
             $data = [
                 'username' => clean($_POST['username']),
                 'email' => clean($_POST['email']),
@@ -67,9 +78,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'approved' => isset($_POST['approved']) ? 1 : 0
             ];
             
-            // Add password if provided
-            if (!empty($_POST['password'])) {
-                $data['password'] = password_hash($_POST['password'], PASSWORD_DEFAULT);
+            if (!empty($password)) {
+                if (strlen($password) < 6) {
+                    $error = 'Password must be at least 6 characters long';
+                    break;
+                }
+                $data['password'] = password_hash($password, PASSWORD_DEFAULT);
             }
             
             $errors = validateRequired([
@@ -83,17 +97,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             if (empty($errors)) {
-                // Check if username or email already exists (excluding current user)
                 $stmt = $pdo->prepare("SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ?");
                 $stmt->execute([$data['username'], $data['email'], $id]);
                 
                 if ($stmt->fetch()) {
                     $error = 'Username or email already exists';
                 } else {
-                    if (update('users', $data, $id)) {
-                        $success = 'User updated successfully!';
-                    } else {
-                        $error = 'Failed to update user';
+                    try {
+                        if (update('users', $data, $id)) {
+                            $success = 'User updated successfully! Approved: ' . ($data['approved'] ? 'Yes' : 'No');
+                        } else {
+                            $error = 'Failed to update user - database error';
+                        }
+                    } catch (Exception $e) {
+                        $error = 'Failed to update user: ' . $e->getMessage();
                     }
                 }
             } else {
@@ -110,10 +127,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif ($user['role'] === 'admin' && $id == $_SESSION['user_id']) {
                     $error = 'Cannot delete your own admin account';
                 } else {
-                    if (delete('users', $id)) {
-                        $success = 'User deleted successfully!';
-                    } else {
-                        $error = 'Failed to delete user';
+                    try {
+                        if (delete('users', $id)) {
+                            $success = 'User deleted successfully!';
+                        } else {
+                            $error = 'Failed to delete user - database error';
+                        }
+                    } catch (Exception $e) {
+                        $error = 'Failed to delete user: ' . $e->getMessage();
                     }
                 }
             }
@@ -131,25 +152,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($selectedUsers as $userId) {
                     $userId = (int)$userId;
                     
-                    // Skip admin users and current user
                     $user = getOne('users', $userId);
                     if (!$user || ($user['role'] === 'admin' && $userId == $_SESSION['user_id'])) {
                         continue;
                     }
                     
-                    switch ($bulkAction) {
-                        case 'approve':
-                            update('users', ['approved' => 1], $userId);
-                            $affectedCount++;
-                            break;
-                        case 'unapprove':
-                            update('users', ['approved' => 0], $userId);
-                            $affectedCount++;
-                            break;
-                        case 'delete':
-                            delete('users', $userId);
-                            $affectedCount++;
-                            break;
+                    try {
+                        switch ($bulkAction) {
+                            case 'approve':
+                                update('users', ['approved' => 1], $userId);
+                                $affectedCount++;
+                                break;
+                            case 'unapprove':
+                                update('users', ['approved' => 0], $userId);
+                                $affectedCount++;
+                                break;
+                            case 'delete':
+                                delete('users', $userId);
+                                $affectedCount++;
+                                break;
+                        }
+                    } catch (Exception $e) {
+                        error_log("Bulk action error: " . $e->getMessage());
                     }
                 }
                 
@@ -163,10 +187,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Handle different actions
+if (isAdmin() && $action === 'approve_user' && isset($_GET['user_id'])) {
+    $user_id = (int)$_GET['user_id'];
+    try {
+        if (update('users', ['approved' => 1], $user_id)) {
+            $success = 'User approved successfully';
+        } else {
+            $error = 'Failed to approve user';
+        }
+    } catch (Exception $e) {
+        $error = 'Failed to approve user: ' . $e->getMessage();
+    }
+    header('Location: ?action=moderate&' . ($error ? 'error=' . urlencode($error) : 'success=' . urlencode($success)));
+    exit;
+}
+
+if (isAdmin() && $action === 'reject_user' && isset($_GET['user_id'])) {
+    $user_id = (int)$_GET['user_id'];
+    try {
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ? AND role != 'admin'");
+        if ($stmt->execute([$user_id])) {
+            $success = 'User rejected and deleted successfully';
+        } else {
+            $error = 'Failed to reject user';
+        }
+    } catch (Exception $e) {
+        $error = 'Failed to reject user: ' . $e->getMessage();
+    }
+    header('Location: ?action=moderate&' . ($error ? 'error=' . urlencode($error) : 'success=' . urlencode($success)));
+    exit;
+}
+
+if (isAdmin() && $action === 'disemvowel_comment' && $id) {
+    moderateComment($id, 'disemvowel');
+    $profile_id = (int)$_GET['profile_id'];
+    header("Location: index.php?action=view&id=$profile_id");
+    exit;
+}
+
+if (isAdmin() && $action === 'restore_comment' && $id) {
+    moderateComment($id, 'restore');
+    $profile_id = (int)$_GET['profile_id'];
+    header("Location: index.php?action=view&id=$profile_id");
+    exit;
+}
+
+if (isAdmin() && $action === 'add_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $data = [
+        'name' => clean($_POST['name']),
+        'description' => clean($_POST['description']),
+        'slug' => generateSlug($_POST['name'], 'categories')
+    ];
+    
+    $errors = validateRequired(['name' => $data['name']]);
+    
+    if (empty($errors)) {
+        if (insert('categories', $data)) {
+            $success = 'Category added successfully!';
+        } else {
+            $error = 'Failed to add category';
+        }
+    } else {
+        $error = implode(', ', $errors);
+    }
+}
+
+if (isAdmin() && $action === 'edit_category' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $data = [
+        'name' => clean($_POST['name']),
+        'description' => clean($_POST['description']),
+        'slug' => generateSlug($_POST['name'], 'categories')
+    ];
+    
+    $errors = validateRequired(['name' => $data['name']]);
+    
+    if (empty($errors)) {
+        if (update('categories', $data, $id)) {
+            $success = 'Category updated successfully!';
+        } else {
+            $error = 'Failed to update category';
+        }
+    } else {
+        $error = implode(', ', $errors);
+    }
+}
+
+if (isAdmin() && $action === 'delete_category' && $id) {
+    $count = getCount('profiles', 'category_id = ?', [$id]);
+    
+    if ($count > 0) {
+        $error = 'Cannot delete category - it is being used by ' . $count . ' profiles';
+    } else {
+        if (delete('categories', $id)) {
+            $success = 'Category deleted successfully!';
+        } else {
+            $error = 'Failed to delete category';
+        }
+    }
+    
+    header('Location: ?action=categories&' . ($error ? 'error=' . urlencode($error) : 'success=' . urlencode($success)));
+    exit;
+}
+
 switch ($action) {
-    case 'create':
-        echo userForm('create', null, $error, $success, $_POST ?? []);
+    case 'moderate':
+        requireAdmin();
+        
+        $pending_users = getAll('users', 'approved = 0 AND role != "admin"');
+        echo moderationPage($pending_users);
+        break;
+        
+    case 'categories':
+        requireAdmin();
+        
+        $error = $_GET['error'] ?? $error;
+        $success = $_GET['success'] ?? $success;
+        
+        echo categoryManagementPage($error, $success, $_POST ?? []);
+        break;
+        
+    case 'edit_category':
+        requireAdmin();
+        
+        $category = getOne('categories', $id);
+        if (!$category) {
+            header('Location: ?action=categories');
+            exit;
+        }
+        
+        echo categoryForm('edit', $category, $error, $success, $_POST);
         break;
         
     case 'edit':
@@ -175,7 +324,7 @@ switch ($action) {
             header('Location: user_management.php');
             exit;
         }
-        echo userForm('edit', $user, $error, $success, $_POST ?? []);
+        echo userForm('edit', $user, $error, $success, $_POST);
         break;
         
     case 'delete':
@@ -187,12 +336,15 @@ switch ($action) {
         echo userDeletePage($user, $error, $success);
         break;
         
-    default: // list
+    case 'create':
+        echo userForm('create', null, $error, $success, $_POST ?? []);
+        break;
+        
+    default:
         echo userListPage($search, $page, $error, $success);
         break;
 }
 
-// Template functions
 function userListPage($search = '', $page = 1, $error = '', $success = '') {
     global $pdo;
     
@@ -201,7 +353,6 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
         ['title' => 'User Management']
     ];
     
-    // Build search conditions
     $where = "1 = 1";
     $params = [];
     
@@ -211,14 +362,11 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
         $params = [$searchTerm, $searchTerm, $searchTerm];
     }
     
-    // Get total count
     $totalUsers = getCount('users', $where, $params);
     
-    // Get users for current page
     $offset = ($page - 1) * ITEMS_PER_PAGE;
     $users = getAll('users', $where, $params, 'created_at DESC', ITEMS_PER_PAGE, $offset);
     
-    // Build search form
     $searchForm = "
         <div class='card mb-4'>
             <div class='card-body'>
@@ -238,7 +386,6 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
             </div>
         </div>";
     
-    // User stats
     $stats = [
         'total' => getCount('users'),
         'admins' => getCount('users', 'role = ?', ['admin']),
@@ -290,7 +437,6 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
             </div>
         </div>";
     
-    // Build user table
     $userRows = '';
     foreach ($users as $user) {
         $profileCount = getCount('profiles', 'user_id = ?', [$user['id']]);
@@ -307,7 +453,6 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
                 <i class='bi bi-pencil'></i>
             </a>";
         
-        // dont allow deletion of current admin
         if (!($user['role'] === 'admin' && $user['id'] == $_SESSION['user_id'])) {
             $actionButtons .= "
                 <a href='?action=delete&id={$user['id']}' class='btn btn-sm btn-outline-danger ms-1'>
@@ -359,10 +504,10 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
             </div>
         </div>";
     
-    // Pagination
     $totalPages = ceil($totalUsers / ITEMS_PER_PAGE);
     $baseUrl = 'user_management.php?1=1' . ($search ? '&search=' . urlencode($search) : '');
     $pagination = getPagination($page, $totalUsers, ITEMS_PER_PAGE, $baseUrl);
+    
     $content = "
         <div class='d-flex justify-content-between align-items-center mb-4'>
             <h1><i class='bi bi-people'></i> User Management</h1>
@@ -423,6 +568,7 @@ function userListPage($search = '', $page = 1, $error = '', $success = '') {
             });
         }
         </script>";
+    
     return layout('User Management', $content, $_SESSION, $breadcrumbs);
 }
 
@@ -438,12 +584,13 @@ function userForm($action, $user = null, $error = '', $success = '', $data = [])
     $passwordField = $action === 'edit' ? 
         "<div class='mb-3'>
             <label class='form-label'>New Password (leave empty to keep current)</label>
-            <input type='password' class='form-control' name='password'>
-            <div class='form-text'>Only enter a password if you want to change it</div>
+            <input type='password' class='form-control' name='password' minlength='6'>
+            <div class='form-text'>Only enter a password if you want to change it (minimum 6 characters)</div>
         </div>" :
         "<div class='mb-3'>
             <label class='form-label'>Password *</label>
-            <input type='password' class='form-control' name='password' required>
+            <input type='password' class='form-control' name='password' minlength='6' required>
+            <div class='form-text'>Minimum 6 characters required</div>
         </div>";
     
     $roleOptions = "
@@ -495,9 +642,14 @@ function userForm($action, $user = null, $error = '', $success = '', $data = [])
                                     <label class='form-label'>Status</label>
                                     <div class='form-check form-switch mt-2'>
                                         <input class='form-check-input' type='checkbox' name='approved' $approvedChecked>
-                                        <label class='form-check-label'>Approved</label>
+                                        <label class='form-check-label'>Approved (user can login)</label>
                                     </div>
                                 </div>
+                            </div>
+                            
+                            <div class='alert alert-info'>
+                                <i class='bi bi-info-circle'></i> 
+                                <strong>Important:</strong> Make sure to check 'Approved' if you want the user to be able to login immediately.
                             </div>
                             
                             <div class='d-flex gap-2'>
@@ -582,7 +734,7 @@ function userDeletePage($user, $error = '', $success = '') {
                                     <a href='user_management.php' class='btn btn-outline-secondary'>
                                         <i class='bi bi-arrow-left'></i> Cancel
                                     </a>
-                                    <button type='submit' class='btn btn-danger' onclick='return confirm(\"Type DELETE to confirm\") && prompt(\"Type DELETE to confirm:\") === \"DELETE\"'>
+                                    <button type='submit' class='btn btn-danger' onclick='return confirm(\"Are you absolutely sure you want to delete this user?\")'>
                                         <i class='bi bi-trash'></i> Delete User
                                     </button>
                                 </div>
